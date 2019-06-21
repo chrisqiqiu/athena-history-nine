@@ -10,7 +10,7 @@ from itertools import chain
 import datetime
 from awsretry import AWSRetry
 import boto3
-
+import csv
 from multiprocessing.dummy import Pool as ThreadPool
 from multiprocessing import Pool as ProcessPool
 
@@ -23,8 +23,10 @@ def main():
     client = boto3.client('athena', region_name='ap-southeast-2')
     logger.info("Read config file for cut-off date... ")
     # os.environ['CONTROLCONFIGPATH'] export "../configs/prod.json" to os.environ['CONTROLCONFIGPATH']
-    cutoff_date = Config(
-        os.environ['CONTROLCONFIGPATH']).data.get("cutoff_date")
+    data = Config(
+        os.environ['CONTROLCONFIGPATH']).data
+
+    cutoff_date = data.get("cutoff_date")
 
     get_each_execution_with_client = partial(get_each_execution, client)
 
@@ -43,7 +45,7 @@ def main():
 
     loop_start = datetime.datetime.now()
     pool = ThreadPool(4)
-    final_list_of_list = pool.map(
+    final_list_of_dict_in_chunks = pool.map(
         get_each_batch_execution_with_client, query_ids_chunks)
     pool.close()
     pool.join()
@@ -54,20 +56,29 @@ def main():
 
     days, hours, minutes = days_hours_minutes(loop_end-loop_start)
 
-    final_list_of_dict = list(chain.from_iterable(final_list_of_list))
+    final_list_of_dict = list(
+        chain.from_iterable(final_list_of_dict_in_chunks))
+
+    csv_file = write_to_csv(final_list_of_dict, "athena_history.csv")
+
+    s3 = S3(data.get("dest_s3_bucket"), prefix=data.get("dest_s3_prefix"))
+
+    now = datetime.datetime.now()
+
+    s3.put(csv_file, f"{now.year}/{now.month}/{now.day}")
+
+
+def write_to_csv(final_list_of_dict, outfile):
+    with open(outfile, 'w',   newline='') as f:
+        w = csv.DictWriter(f, fieldnames=list(final_list_of_dict[0].keys()))
+        w.writeheader()
+        w.writerows(final_list_of_dict)
+    return outfile
 
 
 def get_query_ids_in_chunks(query_ids, chunk_size):
     return [query_ids[i:i+chunk_size]
             for i in range(0, len(query_ids), chunk_size)]
-
-
-def get_query_from_s3(queryBucket, queryKey):
-    query_s3 = S3(bucket=queryBucket)
-    query_s3.get(queryKey, "query.sql")
-    with open("query.sql") as f:
-        query = f.read()
-    return query
 
 
 @AWSRetry.backoff(tries=3, delay=3, added_exceptions=["ThrottlingException"])
