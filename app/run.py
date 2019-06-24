@@ -4,7 +4,6 @@ from s3 import S3
 from lib.log import setup_logger
 from lib.notification import SlackNotification
 from config import Config
-import json
 from functools import partial
 from itertools import chain
 import datetime
@@ -12,7 +11,7 @@ from awsretry import AWSRetry
 import boto3
 import csv
 from multiprocessing.dummy import Pool as ThreadPool
-from multiprocessing import Pool as ProcessPool
+
 
 # load_dotenv()
 logger = setup_logger(__name__)
@@ -28,12 +27,22 @@ def main():
 
     cutoff_date = data.get("cutoff_date")
 
+    # cutoff date can be in formats e.g. "2 months ago" or "2019-05-20" or "" . empty string means taking all the history
+    if cutoff_date and " " in cutoff_date:
+        cutoff_date = (datetime.date.today(
+        ) - datetime.timedelta(int(cutoff_date.split(" ")[0])*365/12)).strftime('%Y-%m-%d')
+        logger.info(f"cutoff_date is {cutoff_date}")
+
     get_each_execution_with_client = partial(get_each_execution, client)
 
     get_each_batch_execution_with_client = partial(
         get_each_batch_execution, client)
 
-    query_execution_ids = get_all_execution_ids()
+    query_execution_ids = get_all_execution_ids(client)
+
+    logger.info(f"Total executions id are {len(query_execution_ids)} ")
+    logger.info(
+        f"Executions id ranging from {get_each_execution_with_client(query_execution_ids[-1])['SubmissionDateTime']} to {get_each_execution_with_client(query_execution_ids[0])['SubmissionDateTime']}")
 
     if cutoff_date:
         max_query_ids_index = binary_search_index_of_query_submission_date(get_each_execution_with_client,
@@ -51,10 +60,13 @@ def main():
     pool.join()
     loop_end = datetime.datetime.now()
 
-    def days_hours_minutes(td):
-        return td.days, td.seconds//3600, (td.seconds//60) % 60
+    def hours_minutes(td):
+        return td.seconds//3600, (td.seconds//60) % 60
 
-    days, hours, minutes = days_hours_minutes(loop_end-loop_start)
+    hours, minutes = hours_minutes(loop_end-loop_start)
+
+    logger.info(
+        f"Time used to get all data is {str(hours) } hours, {str(minutes)} minutes")
 
     final_list_of_dict = list(
         chain.from_iterable(final_list_of_dict_in_chunks))
@@ -65,7 +77,8 @@ def main():
 
     now = datetime.datetime.now()
 
-    s3.put(csv_file, f"{now.year}/{now.month}/{now.day}")
+    s3.put(
+        csv_file, f"{str(now.year)}/{str(now.month).zfill(2)}/{str(now.day)}/athena_history_{str(now.year)}_{str(now.month).zfill(2)}_{str(now.day)}.csv")
 
 
 def write_to_csv(final_list_of_dict, outfile):
@@ -84,8 +97,8 @@ def get_query_ids_in_chunks(query_ids, chunk_size):
 @AWSRetry.backoff(tries=3, delay=3, added_exceptions=["ThrottlingException"])
 def get_each_batch_execution(client, ids_chunk):
     resp = client.batch_get_query_execution(QueryExecutionIds=ids_chunk)
-    print(resp["QueryExecutions"][0]["Status"]
-          ["SubmissionDateTime"].strftime('%Y-%m-%d %H:%M:%S'))
+    # print(resp["QueryExecutions"][0]["Status"]["SubmissionDateTime"].strftime('%Y-%m-%d %H:%M:%S'))
+
     executions = resp["QueryExecutions"]
     return [{
         "QueryExecutionId": execution["QueryExecutionId"],
@@ -107,8 +120,7 @@ def get_each_batch_execution(client, ids_chunk):
 @AWSRetry.backoff(tries=3, delay=3, added_exceptions=["ThrottlingException"])
 def get_each_execution(client, id):
     resp = client.get_query_execution(QueryExecutionId=id)
-    print(resp["QueryExecution"]["Status"]
-          ["SubmissionDateTime"].strftime('%Y-%m-%d %H:%M:%S'))
+    # print(resp["QueryExecution"]["Status"]["SubmissionDateTime"].strftime('%Y-%m-%d %H:%M:%S'))
     return {
         "QueryExecutionId": resp["QueryExecution"]["QueryExecutionId"],
         "Query": resp["QueryExecution"].get("Query"),
@@ -130,6 +142,8 @@ def binary_search_index_of_query_submission_date(get_each_execution_with_client,
     left = 0
     right = len(query_ids)-1
 
+    logger.info(f"Searching {submission_date}")
+
     submission_date_parsed = datetime.datetime.strptime(
         submission_date, "%Y-%m-%d").replace(tzinfo=None).replace(hour=0, minute=0, second=0, microsecond=0)
 
@@ -149,11 +163,12 @@ def binary_search_index_of_query_submission_date(get_each_execution_with_client,
                 # if search date > midpoint date, it should be on left hand side of the list
                 right = midpoint-1
 
-    print("date you specified not found. Returning the nearest date's index")
+    logger.info(
+        f"Date you specified not found. Returning the index of nearest date {get_each_execution_with_client(query_ids[left-1])['SubmissionDateTime']}")
     return left-1
 
 
-def get_all_execution_ids():
+def get_all_execution_ids(client):
     next_token = None
     no_of_page = 0
     query_execution_ids = []
@@ -175,8 +190,9 @@ def get_all_execution_ids():
         except KeyError:
             break
 
-        print(no_of_page)
-        return query_execution_ids
+        logger.info(f"Processed pages {str(no_of_page)} to get execution ids")
+
+    return query_execution_ids
 
 
 if __name__ == '__main__':

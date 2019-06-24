@@ -1,5 +1,5 @@
 {
     "dest_s3_bucket": "ba-dscience-prod",
     "dest_s3_prefix": "athena_usage",
-    "cutoff_date": "2019-05-20"
+    "cutoff_date": "2 months ago"
 }

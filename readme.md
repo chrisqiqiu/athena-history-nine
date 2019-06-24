@@ -3,6 +3,7 @@
 
 This is a project to get athena query history and save it to s3 <br />
 
+The cutoff date in config can be in formats e.g. "2 months ago" or "2019-05-20" or "" . Empty string means taking all the history 
 
 ## Install required packages
 

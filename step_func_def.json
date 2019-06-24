@@ -1,0 +1,59 @@
+{
+    "Comment": "Dynamic ETL pipelines using Step function",
+    "StartAt": "Set_Athena_History_Cluster",
+    "States": {
+        "Set_Athena_History_Cluster": {
+            "Type": "Pass",
+            "Result": {
+                "cluster": "athena-history",
+                "service": "arn:aws:ecs:ap-southeast-2:462463595486:service/athena-history/athena-history",
+                "task_definition": "athena-history",
+                "config": "../configs/prod.json"
+            },
+            "ResultPath": "$.info",
+            "Next": "Spin_Up_Athena_History"
+        },
+        "Spin_Up_Athena_History": {
+            "Type": "Task",
+            "InputPath": "$.info",
+            "Resource": "arn:aws:lambda:ap-southeast-2:462463595486:function:fargate-cluster-up",
+            "Next": "Check_Athena_Cluster_Status"
+        },
+        "Check_Athena_Cluster_Status": {
+            "Type": "Task",
+            "InputPath": "$",
+            "Resource": "arn:aws:lambda:ap-southeast-2:462463595486:function:state-change",
+            "TimeoutSeconds": 15,
+            "Next": "Athena Complete?"
+        },
+        "Athena Complete?": {
+            "Type": "Choice",
+            "Choices": [
+                {
+                    "Variable": "$.number",
+                    "NumericEquals": 1,
+                    "Next": "wait_athena_to_complete"
+                },
+                {
+                    "Variable": "$.number",
+                    "NumericEquals": 0,
+                    "Next": "Success"
+                }
+            ],
+            "Default": "Job Failed"
+        },
+        "wait_athena_to_complete": {
+            "Type": "Wait",
+            "Seconds": 60,
+            "Next": "Check_Athena_Cluster_Status"
+        },
+        "Success": {
+            "Type": "Succeed"
+        },
+        "Job Failed": {
+            "Type": "Fail",
+            "Cause": "AWS Transcribe Job Failed",
+            "Error": "DescribeJob returned FAILED"
+        }
+    }
+}

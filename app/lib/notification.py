@@ -7,9 +7,9 @@ class SlackNotification(object):
     def __init__(self, module_name):
         self.base_uri = "http://slack.datascience.ec2/postMessage"
         self.warningTemplateMessage = {
-            "text": "<!here> Error: Athena runner python version run {} from module : {}"}
+            "text": "<!here> Error: Athena History {} from module : {}"}
         self.infoTemplateMessage = {
-            "text": "Error: Athena runner python version run {} from module : {}"}
+            "text": "Error: Athena History {} from module : {}"}
         self.headers = {'Content-Type': 'application/json'}
         self.module = module_name
 
