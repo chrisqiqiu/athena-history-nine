@@ -11,11 +11,13 @@ from awsretry import AWSRetry
 import boto3
 import csv
 from multiprocessing.dummy import Pool as ThreadPool
-
+import json
 
 # load_dotenv()
 logger = setup_logger(__name__)
 slackBot = SlackNotification(__name__)
+
+# cutoff_date is the "from date" exclusive. up_to_date is the "to date" by default i.e. empty string in config is today exclusive.
 
 
 def main():
@@ -26,12 +28,15 @@ def main():
         os.environ['CONTROLCONFIGPATH']).data
 
     cutoff_date = data.get("cutoff_date")
+    now = datetime.datetime.now()
 
     # cutoff date can be in formats e.g. "2 months ago" or "2019-05-20" or "" . empty string means taking all the history
     if cutoff_date and " " in cutoff_date:
         cutoff_date = (datetime.date.today(
         ) - datetime.timedelta(int(cutoff_date.split(" ")[0])*365/12)).strftime('%Y-%m-%d')
         logger.info(f"cutoff_date is {cutoff_date}")
+    elif cutoff_date and cutoff_date == "yesterday":
+        cutoff_date = (now - datetime.timedelta(2)).strftime('%Y-%m-%d')
 
     get_each_execution_with_client = partial(get_each_execution, client)
 
@@ -71,14 +76,30 @@ def main():
     final_list_of_dict = list(
         chain.from_iterable(final_list_of_dict_in_chunks))
 
-    csv_file = write_to_csv(final_list_of_dict, "athena_history.csv")
+    # exclude cut-off date and today's date
+    if data.get("up_to_date"):
+        up_to_date = datetime.datetime.strptime(
+            data.get("up_to_date"), '%Y-%m-%d')
+    else:
+        up_to_date = now
+
+    final_list_of_dict = list(filter(lambda d: datetime.datetime.strptime(
+        d["SubmissionDateTime"], '%Y-%m-%d %H:%M:%S') >= datetime.datetime.strptime(cutoff_date, '%Y-%m-%d').replace(hour=0, minute=0, second=0, microsecond=0)+datetime.timedelta(1) and datetime.datetime.strptime(
+        d["SubmissionDateTime"], '%Y-%m-%d %H:%M:%S') < up_to_date.replace(hour=0, minute=0, second=0, microsecond=0), final_list_of_dict))
+
+    logger.info(
+        f"Final queries dates ranging from {final_list_of_dict[-1]['SubmissionDateTime']} to {final_list_of_dict[0]['SubmissionDateTime']}")
 
     s3 = S3(data.get("dest_s3_bucket"), prefix=data.get("dest_s3_prefix"))
 
-    now = datetime.datetime.now()
+    date_folder_on_s3 = now-datetime.timedelta(1)
 
-    s3.put(
-        csv_file, f"{str(now.year)}/{str(now.month).zfill(2)}/{str(now.day)}/athena_history_{str(now.year)}_{str(now.month).zfill(2)}_{str(now.day)}.csv")
+    if data.get("output_type") == "json":
+        out_file = write_to_json(final_list_of_dict, "athena_history")
+        s3.put(out_file, f"{str(date_folder_on_s3.year)}/{str(date_folder_on_s3.month).zfill(2)}/{str(date_folder_on_s3.day)}/athena_history_{str(date_folder_on_s3.year)}_{str(date_folder_on_s3.month).zfill(2)}_{str(date_folder_on_s3.day)}.json")
+    else:
+        out_file = write_to_csv(final_list_of_dict, "athena_history")
+        s3.put(out_file, f"{str(date_folder_on_s3.year)}/{str(date_folder_on_s3.month).zfill(2)}/{str(date_folder_on_s3.day)}/athena_history_{str(date_folder_on_s3.year)}_{str(date_folder_on_s3.month).zfill(2)}_{str(date_folder_on_s3.day)}.csv")
 
 
 def write_to_csv(final_list_of_dict, outfile):
@@ -86,6 +107,12 @@ def write_to_csv(final_list_of_dict, outfile):
         w = csv.DictWriter(f, fieldnames=list(final_list_of_dict[0].keys()))
         w.writeheader()
         w.writerows(final_list_of_dict)
+    return outfile
+
+
+def write_to_json(final_list_of_dict, outfile):
+    with open(outfile, 'w') as f:
+        json.dump(final_list_of_dict, f)
     return outfile
 
 
@@ -108,8 +135,8 @@ def get_each_batch_execution(client, ids_chunk):
         "QueryExecutionContext": str(execution.get("QueryExecutionContext")),
         "State":   execution["Status"].get("State"),
         "StateChangeReason":   execution["Status"].get("StateChangeReason"),
-        "SubmissionDateTime": execution["Status"]["SubmissionDateTime"],
-        "SubmissionDateTimeString": execution["Status"]["SubmissionDateTime"].strftime('%Y-%m-%d %H:%M:%S'),
+        # "SubmissionDateTime": execution["Status"]["SubmissionDateTime"],
+        "SubmissionDateTime": execution["Status"]["SubmissionDateTime"].strftime('%Y-%m-%d %H:%M:%S'),
         "CompletionDateTime":   execution["Status"].get("CompletionDateTime").strftime('%Y-%m-%d %H:%M:%S'),
         "EngineExecutionTimeInMillis": execution.get("Statistics").get("EngineExecutionTimeInMillis"),
         "DataScannedInBytes": execution.get("Statistics").get("DataScannedInBytes"),

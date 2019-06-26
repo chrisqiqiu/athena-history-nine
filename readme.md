@@ -3,7 +3,11 @@
 
 This is a project to get athena query history and save it to s3 <br />
 
-The cutoff date in config can be in formats e.g. "2 months ago" or "2019-05-20" or "" . Empty string means taking all the history 
+The cutoff date in config can be in formats e.g. "2 months ago" or "2019-05-20" or "" or "yesterday" . Empty string means taking all the history 
+
+cutoff_date is the "from date" exclusive. up_to_date is the "to date" by default i.e. empty string in config is today exclusive.
+
+output_type can be either "csv" or "json". By default is "json"
 
 ## Install required packages
 

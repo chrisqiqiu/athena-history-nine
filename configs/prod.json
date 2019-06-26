@@ -1,5 +1,7 @@
 {
     "dest_s3_bucket": "ba-dscience-prod",
     "dest_s3_prefix": "athena_usage",
-    "cutoff_date": "2 months ago"
+    "cutoff_date": "yesterday",
+    "up_to_date": "",
+    "output_type": "json"
 }
