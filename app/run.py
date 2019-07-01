@@ -30,7 +30,7 @@ def main():
     cutoff_date = data.get("cutoff_date")
     now = datetime.datetime.now()
 
-    # cutoff date can be in formats e.g. "2 months ago" or "2019-05-20" or "" . empty string means taking all the history
+    # cutoff date can be in formats e.g. "2 months ago" or "2019-05-20" or "" or "yesterday". empty string means taking all the history
     if cutoff_date and " " in cutoff_date:
         cutoff_date = (datetime.date.today(
         ) - datetime.timedelta(int(cutoff_date.split(" ")[0])*365/12)).strftime('%Y-%m-%d')
@@ -111,8 +111,11 @@ def write_to_csv(final_list_of_dict, outfile):
 
 
 def write_to_json(final_list_of_dict, outfile):
-    with open(outfile, 'w') as f:
-        json.dump(final_list_of_dict, f)
+    with open(outfile, 'a', newline='') as f:
+        for idx, dic in enumerate(final_list_of_dict):
+            json.dump(dic, f)
+            if idx != len(final_list_of_dict)-1:
+                f.write("\n")
     return outfile
 
 

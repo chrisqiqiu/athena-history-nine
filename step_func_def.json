@@ -23,7 +23,7 @@
             "Type": "Task",
             "InputPath": "$",
             "Resource": "arn:aws:lambda:ap-southeast-2:462463595486:function:state-change",
-            "TimeoutSeconds": 15,
+            "TimeoutSeconds": 30,
             "Next": "Athena Complete?"
         },
         "Athena Complete?": {

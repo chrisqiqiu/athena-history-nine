@@ -9,6 +9,8 @@ cutoff_date is the "from date" exclusive. up_to_date is the "to date" by default
 
 output_type can be either "csv" or "json". By default is "json"
 
+Note: Starting on December 1, 2017, Athena retains query history for 45 days. So you might see there're queries before 2017-12-1 if you try to run all dates i.e. putting empty string in config. Reference: https://docs.aws.amazon.com/athena/latest/ug/queries-viewing-history.html
+
 ## Install required packages
 
 pip install -r requirements.txt
