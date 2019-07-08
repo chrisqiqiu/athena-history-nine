@@ -58,7 +58,7 @@ def main():
     query_ids_chunks = get_query_ids_in_chunks(query_execution_ids, 50)
 
     loop_start = datetime.datetime.now()
-    pool = ThreadPool(4)
+    pool = ThreadPool(2)
     final_list_of_dict_in_chunks = pool.map(
         get_each_batch_execution_with_client, query_ids_chunks)
     pool.close()
@@ -92,14 +92,14 @@ def main():
 
     s3 = S3(data.get("dest_s3_bucket"), prefix=data.get("dest_s3_prefix"))
 
-    date_folder_on_s3 = now-datetime.timedelta(1)
+    date_folder_on_s3 = up_to_date-datetime.timedelta(1)
 
     if data.get("output_type") == "json":
         out_file = write_to_json(final_list_of_dict, "athena_history")
-        s3.put(out_file, f"{str(date_folder_on_s3.year)}/{str(date_folder_on_s3.month).zfill(2)}/{str(date_folder_on_s3.day)}/athena_history_{str(date_folder_on_s3.year)}_{str(date_folder_on_s3.month).zfill(2)}_{str(date_folder_on_s3.day)}.json")
+        s3.put(out_file, f"{str(date_folder_on_s3.year)}/{str(date_folder_on_s3.month).zfill(2)}/{str(date_folder_on_s3.day).zfill(2)}/athena_history_{str(date_folder_on_s3.year)}_{str(date_folder_on_s3.month).zfill(2)}_{str(date_folder_on_s3.day).zfill(2)}.json")
     else:
         out_file = write_to_csv(final_list_of_dict, "athena_history")
-        s3.put(out_file, f"{str(date_folder_on_s3.year)}/{str(date_folder_on_s3.month).zfill(2)}/{str(date_folder_on_s3.day)}/athena_history_{str(date_folder_on_s3.year)}_{str(date_folder_on_s3.month).zfill(2)}_{str(date_folder_on_s3.day)}.csv")
+        s3.put(out_file, f"{str(date_folder_on_s3.year)}/{str(date_folder_on_s3.month).zfill(2)}/{str(date_folder_on_s3.day).zfill(2)}/athena_history_{str(date_folder_on_s3.year)}_{str(date_folder_on_s3.month).zfill(2)}_{str(date_folder_on_s3.day).zfill(2)}.csv")
 
 
 def write_to_csv(final_list_of_dict, outfile):
@@ -198,10 +198,21 @@ def binary_search_index_of_query_submission_date(get_each_execution_with_client,
     return left-1
 
 
+@AWSRetry.backoff(tries=3, delay=60, added_exceptions=["ThrottlingException"])
 def get_all_execution_ids(client):
     next_token = None
     no_of_page = 0
     query_execution_ids = []
+
+    @AWSRetry.backoff(tries=3, delay=60, added_exceptions=["ThrottlingException"])
+    def iterate_paginator(response_iterator, query_execution_ids, no_of_page):
+
+        for page in response_iterator:
+            # print(page["QueryExecutionIds"])
+            query_execution_ids.extend(page["QueryExecutionIds"])
+            no_of_page = no_of_page + 1
+
+        return page, no_of_page
 
     while True:
         paginator = client.get_paginator('list_query_executions')
@@ -210,10 +221,8 @@ def get_all_execution_ids(client):
             'PageSize': 50,
             'StartingToken': next_token})
 
-        for page in response_iterator:
-            # print(page["QueryExecutionIds"])
-            query_execution_ids.extend(page["QueryExecutionIds"])
-            no_of_page = no_of_page + 1
+        page, no_of_page = iterate_paginator(
+            response_iterator, query_execution_ids, no_of_page)
 
         try:
             next_token = page["NextToken"]

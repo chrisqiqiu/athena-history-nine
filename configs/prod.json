@@ -1,7 +1,7 @@
 {
     "dest_s3_bucket": "ba-dscience-prod",
     "dest_s3_prefix": "athena_history",
-    "cutoff_date": "yesterday",
-    "up_to_date": "",
+    "cutoff_date": "2019-07-05",
+    "up_to_date": "2019-07-07",
     "output_type": "json"
 }
